@@ -7,7 +7,43 @@ from PIL import ImageTk, Image
 from datetime import datetime
 import threading
 import queue
-import pymupdf as pdf
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+
+def init_pdf(filename="sample.pdf"): 
+    pdf = SimpleDocTemplate(filename=filename, pagesize=A4)
+    sty = getSampleStyleSheet() 
+    sty_title = sty['Title']
+    sty_head2 = sty['Heading2']
+    
+    title = Paragraph(f"HASIL PEMBACAAN XK-3190-A9", sty_title)
+    time_now = datetime.now().strftime("%d/%m/%y %H:%M")
+    time_doc = Paragraph(f"Pada : {time_now}", sty_head2)
+    spacer = Spacer(1, 20)
+    return pdf, title, time_doc, spacer
+
+def create_pdf(pdf, title, time_doc, spacer, data):
+    # pdf = SimpleDocTemplate(filename, pagesize=A4)
+    table = Table(data)
+    style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
+    ])
+    table.setStyle(style)
+    # elements.append(table)
+    # Simpan ke PDF
+    # print(elements)
+    pdf.build([title, time_doc, spacer, table])
+
+
 
 
 def check_port_availability(port):
@@ -37,7 +73,11 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
         ser.timeout = timeout
         ser.port = port 
         ser.open()
-            
+        line_arr = []
+        headers = ["No", "Berat (kg)", "Timestamp"]
+        line_arr.insert(0, headers)
+        filename = f"HASIL_TIMBANGAN_{datetime.now().strftime('%d-%m-%y %H-%M-%S')}.pdf"    
+        pdf, title, time_doc, spacer = init_pdf(filename=filename)
         while ser.is_open:
                 if ser.in_waiting > 0:
                     data = ser.readline().decode(code).strip()
@@ -47,8 +87,9 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
                     if index > 15:
                         ser.close()
                     else:    
+                        line_arr.append([index, data, timestamps])
                         queue_dt.put([[index, data, timestamps]])
-                
+                        create_pdf(pdf, title, time_doc, spacer, line_arr)
                 if condition is False:
                     ser.close()
         else:
@@ -62,8 +103,7 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
     except Exception as e:
         messagebox.showerror("Error", f"Codec tidak cocok! {str(e)}")
 
-def create_pdf():
-    pass
+
 
 def start_reading_serial(port, baud_rate, timeout, code):
     thread = threading.Thread(
@@ -200,8 +240,8 @@ def run_save(field_port, field_baud_rate, field_timeout=5, field_code="latin-1")
     # Cek keberadaan Treeview di dalam frame
     if 'tree' not in globals() or not tree.winfo_exists():
         tree = ttk.Treeview(frame, columns=(1, 2, 3), show="headings", height=10)
-        tree.heading(1, text="Index")
-        tree.heading(2, text="Data")
+        tree.heading(1, text="No.")
+        tree.heading(2, text="Berat")
         tree.heading(3, text="Timestamp")
         tree.pack(fill="both", expand=True)
     
@@ -210,7 +250,7 @@ def run_save(field_port, field_baud_rate, field_timeout=5, field_code="latin-1")
         f"frame: {frame.winfo_exists()}, "
         f"dialog: {dialog.winfo_exists()}"
     )
-
+ 
     # Mulai thread untuk menjalankan fungsi save_data
     th = threading.Thread(
         target=save_data,
@@ -293,7 +333,6 @@ if __name__=='__main__':
     stop_event = threading.Event()
     condition = True
     ser = serial.Serial()
-    
     # root.protocol("WM_DELETE_WINDOW", stop_serial_reading)
     gui_window()
     root.mainloop()
