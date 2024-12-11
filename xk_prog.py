@@ -11,8 +11,25 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
+import os
 
-def init_pdf(filename="sample.pdf"): 
+
+folder = "documents"
+no = 0
+
+def init_pdf(filename="sample.pdf"):
+    """
+    Function untuk menginisiasi pembuatan dan menyimpan dokumen pdf.
+    
+    :params filename (str): nama file.
+    :return pdf, title, time_doc, spacer
+    """
+     
+    global folder
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        
+    filename = os.path.join(f"{folder}", filename)
     pdf = SimpleDocTemplate(filename=filename, pagesize=A4)
     sty = getSampleStyleSheet() 
     sty_title = sty['Title']
@@ -22,10 +39,22 @@ def init_pdf(filename="sample.pdf"):
     time_now = datetime.now().strftime("%d/%m/%y %H:%M")
     time_doc = Paragraph(f"Pada : {time_now}", sty_head2)
     spacer = Spacer(1, 20)
+    
     return pdf, title, time_doc, spacer
 
 def create_pdf(pdf, title, time_doc, spacer, data):
-    # pdf = SimpleDocTemplate(filename, pagesize=A4)
+    """
+    Function untuk membuat dokumen data hasil pengukuran dalam 
+    bentuk tabel.
+    
+    :param pdf: objek hasil inisisi SimpleDocTemplate class;
+    :param title (str):judul dokumen;
+    :param time_doc (str): waktu pembuatan dokumen;
+    :param spacer: objek spasi 
+    :param data (list): data streaming yang di assign.
+    
+    """
+    
     table = Table(data)
     style = TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -38,58 +67,63 @@ def create_pdf(pdf, title, time_doc, spacer, data):
         ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
     ])
     table.setStyle(style)
-    # elements.append(table)
-    # Simpan ke PDF
-    # print(elements)
     pdf.build([title, time_doc, spacer, table])
-
-
-
+ 
 
 def check_port_availability(port):
     """
     Mengecek apakah port aktif atau tidak.
+    
+    :param port (str): port yang akan digunakan.
     """
     try:
         test_serial = serial.Serial(port=port)
-        test_serial.close()  # Kalau bisa dibuka, berarti aktif
+        test_serial.close()
         return True
     except serial.SerialException:
         return False
+    
 
 def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"):
+    """
+    Function untuk membaca data streaming serial, cek terlebih dahulu
+    `port`, `baud_rate`, dan `jenis decode` yang digunakan alat.
+    
+    :param baud_rate (int): frekuensi baud yang digunakan oleh alat.
+    :param port (str): port yang digunakan oleh alat.
+    :param timeout (int): waktu tunggu untuk menghubungkan port.
+    :param code (str): jenis decode yang digunakan untuk mengubah data serial biner ke string.
+    """
+    
     data = None
-    index = 0
-
+    global no, isPick
     if not check_port_availability(port):
         messagebox.showerror("Port Error", f"Port {port} tidak aktif atau tidak ada perangkat atau sedang dibuka!")
         return
 
     try:
-        # ser = serial.Serial(baudrate=baud_rate, timeout=timeout, port=port)
-        # ser.open()  # Pastikan port terbuka sebelum digunakan
-        
         ser.baudrate = baud_rate
         ser.timeout = timeout
         ser.port = port 
         ser.open()
         line_arr = []
-        headers = ["No", "Berat (kg)", "Timestamp"]
+        headers = ["No Serial", "Berat (kg)", "Timestamp"]
         line_arr.insert(0, headers)
         filename = f"HASIL_TIMBANGAN_{datetime.now().strftime('%d-%m-%y %H-%M-%S')}.pdf"    
         pdf, title, time_doc, spacer = init_pdf(filename=filename)
+        
         while ser.is_open:
                 if ser.in_waiting > 0:
                     data = ser.readline().decode(code).strip()
-                    index +=1
+                    no +=1
                     timestamps = datetime.now().strftime("%d-%m-%y %H:%M:%S")
-                    print(index, data, timestamps)
-                    if index > 15:
-                        ser.close()
-                    else:    
-                        line_arr.append([index, data, timestamps])
-                        queue_dt.put([[index, data, timestamps]])
+                    print(no, data, timestamps)
+                  
+                    queue_dt.put([[no, data, timestamps]])
+                    if isPick is True:
+                        line_arr.append([no, data, timestamps])
                         create_pdf(pdf, title, time_doc, spacer, line_arr)
+                        isPick = False
                 if condition is False:
                     ser.close()
         else:
@@ -97,7 +131,7 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
             messagebox.showerror("Connection Closed", "Port tidak menanggapi!")
     except serial.SerialException as e:
         logging.debug(f"Serial Error : {str(e)}")
-        messagebox.showinfo("Warning", f"Port ditutup! {str(e)}")
+        messagebox.showinfo("Warning", f"Port ditutup!")
     except UnicodeDecodeError:
         data = ser.readline().decode("latin-1", errors="ignore").strip()
     except Exception as e:
@@ -106,6 +140,17 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
 
 
 def start_reading_serial(port, baud_rate, timeout, code):
+    """
+    Function untuk menjalankan fungsi `read_serial_data` pada thread terpisah
+    dari main thread.
+    
+    :param port (int): port yang akan digunakan;
+    :param baud_rate (int): baud rate yang akan digunakan
+    :param timeout (int): waktu tunggu.
+    :param code (str): jenis decode;
+    
+    """
+    
     thread = threading.Thread(
         target=read_serial_data,
         args=(baud_rate, port, timeout, code),
@@ -115,19 +160,31 @@ def start_reading_serial(port, baud_rate, timeout, code):
 
 
 def stop_table(dialog):
+    """
+    Menghancurkan pop-up dialog table.
+    
+    :param dialog : dialog GUI pop-up
+    """
     dialog.destroy()
 
 def stop_serial_reading():
+    """
+    Untuk menutup koneksi port.
+    """
     ser.close()
 
 def show_table(data):
+    """
+    Membuat GUI table.
+    
+    :param data: streaming serial data;
+    """
     
     heading_arr = [
         "No.", 
         "Berat",
         "Waktu"
     ]
-    # tree.pack(padx=10, pady=10)
     sty = ttk.Style()
     sty.theme_use('clam')
     sty.configure('Treeview', rowheight=80, font=("Arial", 11))
@@ -148,29 +205,35 @@ def show_table(data):
     frame.grid_rowconfigure(0, weight=1)
     frame.grid_columnconfigure(0, weight=1)
     
-    # close_btn = tk.Button(
-    #     # root,
-    #     dialog, 
-    #     text="Tutup", 
-    #     command= stop_table(dialog)
-    # )
-    # close_btn.pack(pady=10)
-    
     dialog.update_idletasks()
     dialog.geometry("650x400")
 
 def run_table_onThread(data):
+    """
+    Menjalankan GUI table pada thread yang terpisah dari Main Thread.
+    """
     th = threading.Thread(target=show_table, args=(data), daemon=True)
     th.start()
 
 def insert_to_table(queue, tree):
+    """
+    Insert serial data ke tabel;
+    :param queue: objek Queue hasil pembacaan serial.
+    :param tree: objek TreeView untuk pembentuk dialog GUI.
+    
+    """
     while not queue.empty():
         data = queue.get()
         for row in data:
             tree.insert("", "end", values=row)
+    #update data setiap 100 ms        
     root.after(100, insert_to_table, queue, tree)    
 
 def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"):
+    """
+    Function yang digunakan saat button `start listening` ditekan.
+    """
+    
     field_port = field_port.get()
     field_baud_rate = field_baud_rate.get()
     field_timeout = field_timeout.get()
@@ -195,36 +258,37 @@ def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"
             code=field_code
         )
         
-        # Mulai thread untuk memonitor queue tanpa memblokir GUI
         thread_monitor = threading.Thread(
             target=monitor_queue,
             daemon=True
         )
         thread_monitor.start()
-        print("asline tekan kene rung ")
         
     except Exception as e:
         messagebox.showerror("Error", f"Terjadi kesalahan: {str(e)}")
 
 def monitor_queue():
     """
-    Fungsi untuk memantau queue dan memproses data yang masuk
+    Fungsi untuk mendapatkan nilai queue dan memproses data yang masuk
     tanpa memblokir thread utama (GUI).
     """
     while True:
         try:
-            data = queue_dt.get(timeout=5)  # Timeout 1 detik
+            data = queue_dt.get(timeout=5)
             if data:
-                # Proses data (misalnya tampilkan ke tabel)
+                #Jalankan GUI Tabel di thrad lain;
                 run_table_onThread([data])
                 print(data)
-                # Contoh masukkan ke TreeView
+                #menambahkan nilai dari Queue ke table GUI
                 insert_to_table(queue_dt, tree)
         except Exception as e:
-            # Timeout habis atau queue kosong (bisa diabaikan)
             continue
         
 def run_save(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"):
+    """
+    menjalankan `save_data` pada thread yang terpisah agar tidak blocking IO.
+    """
+    
     global tree, frame, dialog
 
     # Cek keberadaan objek dialog
@@ -259,15 +323,25 @@ def run_save(field_port, field_baud_rate, field_timeout=5, field_code="latin-1")
     )
     th.start()
 
-
+def pick_serial_data():
+    global isPick
+    isPick = True
 
 def gui_window():
     option_codes = [
         "utf-8", 
         "utf-16", 
+        "utf-32",
         "latin-1",
         "latin-2",
         "ISO-8859-1",
+        "base64", 
+        "base85", 
+        "GB18030",
+        "GB2312",
+        "GBK",
+        "MIME",
+        "Big5"
     ]
      
     image = ImageTk.PhotoImage(Image.open("kl.png"))
@@ -297,22 +371,32 @@ def gui_window():
 
     btn_listen = tk.Button(root, 
                            text="Start Listen", 
-                           height=5, 
+                           height=5,
+                           background='green', 
                            width=30,
                            relief="groove",
                            command=lambda : run_save(field_port=field_port,
                                              field_baud_rate=field_baud_rate,
                                              field_code=var_option, 
                                              field_timeout=field_timeout))
-    btn_listen.grid(row=6, column=0, columnspan=2, pady=10)
+    btn_listen.grid(row=6, column=0, columnspan=3, pady=10)
+    
+    btn_take = tk.Button(root, 
+                           text="Pick Data", 
+                           height=5, 
+                           width=30,
+                           relief="groove",
+                           command=lambda : pick_serial_data())
+    btn_take.grid(row=7, column=0, columnspan=2, pady=10)
     
     btn_stop = tk.Button(root, 
                            text="Stop Listen", 
                            height=5, 
                            width=30,
+                           background="red",
                            relief="groove",
                            command=lambda : stop_serial_reading())
-    btn_stop.grid(row=7, column=0, columnspan=3, pady=10)
+    btn_stop.grid(row=8, column=0, columnspan=3, pady=10)
     
     
 
@@ -320,7 +404,7 @@ def gui_window():
 if __name__=='__main__':
     root = tk.Tk()
     root.title("XK-3190-A9 READER PROGRAM")
-    root.geometry("650x500")
+    root.geometry("650x550")
     root.resizable(0.1, 0.2)
   
     dialog = tk.Toplevel(root)
@@ -333,7 +417,8 @@ if __name__=='__main__':
     stop_event = threading.Event()
     condition = True
     ser = serial.Serial()
-    # root.protocol("WM_DELETE_WINDOW", stop_serial_reading)
+    isPick = False
+    
     gui_window()
     root.mainloop()
     
