@@ -195,7 +195,7 @@ def show_table(data):
     
     for row in data:
         tree.insert("", "end", values=row)
-    
+        tree.see(tree.get_children()[-1])
     v_scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=v_scroll.set)
     
@@ -328,6 +328,9 @@ def pick_serial_data():
     isPick = True
 
 def gui_window():
+    "Menampilkan GUI menu utama"
+    
+    # daftar codec
     option_codes = [
         "utf-8", 
         "utf-16", 
@@ -336,17 +339,22 @@ def gui_window():
         "latin-2",
         "ISO-8859-1",
         "base64", 
-        "base85", 
         "GB18030",
         "GB2312",
         "GBK",
-        "MIME",
-        "Big5"
+        "Big5",
+        "Shift-JIS",
+        "EUC-JP",
+        "KOI8-R",
+        "ISO-8859-9",
+        "windows-1252"
+        "Windows-1254",
+        
     ]
      
-    image = ImageTk.PhotoImage(Image.open("kl.png"))
-    lb_img = tk.Label(root, image=image)
-    lb_img.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+    # image = ImageTk.PhotoImage(Image.open("kl.png"))
+    # lb_img = tk.Label(root, image=image)
+    # lb_img.grid(row=0, column=0, padx=10, pady=5, sticky="w")
      
     tk.Label(root, text="Port:", font=("Arial", 10)).grid(row=1, column=0, padx=10, pady=5, sticky="w")
     field_port = tk.Entry(root, width=60,font=("Arial", 10))
