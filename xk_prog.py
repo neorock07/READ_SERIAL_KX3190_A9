@@ -12,10 +12,11 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 import os
-
+from serial.tools import list_ports
 
 folder = "documents"
 no = 0
+
 
 def init_pdf(filename="sample.pdf"):
     """
@@ -235,6 +236,8 @@ def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"
     """
     
     field_port = field_port.get()
+    field_port = str(field_port).split(" ")[0]
+    print(field_port)
     field_baud_rate = field_baud_rate.get()
     field_timeout = field_timeout.get()
     field_code = field_code.get()
@@ -327,6 +330,30 @@ def pick_serial_data():
     global isPick
     isPick = True
 
+def get_ports():
+    """
+    Function untuk mendapatkan list port yang tersedia.
+    """
+    ports_arr = []
+    ports = list_ports.comports()
+    for port, d, h in sorted(ports):
+        if d[:3] == "USB":
+            ports_arr.append(f"{port} ({d[:3]})")
+        else:    
+            ports_arr.append(port)
+            
+    return ports_arr   
+
+def refresh_ports():
+    global field_port
+    ports = get_ports()
+    field_port_menu = field_port["menu"]
+    print("f_port ", field_port)
+    field_port_menu.delete(0, "end")
+    for port in ports:
+        field_port_menu.add_command(label=port, command=lambda value=port: var_option_ports.set(value))
+    var_option_ports.set("Pilih")
+
 def gui_window():
     "Menampilkan GUI menu utama"
     
@@ -351,14 +378,19 @@ def gui_window():
         "Windows-1254",
         
     ]
-     
-    # image = ImageTk.PhotoImage(Image.open("kl.png"))
-    # lb_img = tk.Label(root, image=image)
-    # lb_img.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+      
      
     tk.Label(root, text="Port:", font=("Arial", 10)).grid(row=1, column=0, padx=10, pady=5, sticky="w")
-    field_port = tk.Entry(root, width=60,font=("Arial", 10))
-    field_port.grid(row=1, column=1, padx=10, pady=5)
+    field_port.grid(row=1, column=1, padx=10, pady=5, sticky="w")
+    
+    btn_refresh = tk.Button(root, 
+                           text="💱refresh", 
+                           height=1,
+                        #    background='green', 
+                           width=6,
+                           relief="groove",
+                           command=lambda : refresh_ports())
+    btn_refresh.grid(row=1, column=1, columnspan=3, pady=10, sticky="w", padx=100)
     
     tk.Label(root, text="Baud Rate:", font=("Arial", 10)).grid(row=2, column=0, padx=10, pady=5, sticky="w")
     field_baud_rate = tk.Entry(root, width=60, font=("Arial", 10))
@@ -370,12 +402,13 @@ def gui_window():
     field_timeout.insert(0, "5")
     field_timeout.grid(row=3, column=1, padx=10, pady=5)
     
+    #membuat option codec
     var_option = tk.StringVar(root)
     var_option.set("Pilih")
     
     tk.Label(root, text="[Optional]\nCode (latin-1 default):", font=("Arial", 10)).grid(row=4, column=0, padx=10, pady=5, sticky="w")
     field_code = tk.OptionMenu(root, var_option, *option_codes)
-    field_code.grid(row=5, column=0, padx=10, pady=5)
+    field_code.grid(row=4, column=1, padx=10, pady=5, sticky="w")
 
     btn_listen = tk.Button(root, 
                            text="Start Listen", 
@@ -383,7 +416,7 @@ def gui_window():
                            background='green', 
                            width=30,
                            relief="groove",
-                           command=lambda : run_save(field_port=field_port,
+                           command=lambda : run_save(field_port=var_option_ports,
                                              field_baud_rate=field_baud_rate,
                                              field_code=var_option, 
                                              field_timeout=field_timeout))
@@ -426,6 +459,11 @@ if __name__=='__main__':
     condition = True
     ser = serial.Serial()
     isPick = False
+    
+    ports = get_ports()
+    var_option_ports = tk.StringVar(root)
+    var_option_ports.set("Pilih") 
+    field_port = tk.OptionMenu(root, var_option_ports, *ports)
     
     gui_window()
     root.mainloop()
