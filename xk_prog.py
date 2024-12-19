@@ -13,10 +13,30 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 import os
 from serial.tools import list_ports
+# experimental
+from desktop_notifier import DesktopNotifier, Urgency, Button, ReplyField, DEFAULT_SOUND, Icon
+import asyncio
+from pathlib import Path
+import time
 
 folder = "documents"
+BASE_DIR = Path(__file__).resolve().parent 
+icon = Icon(path=BASE_DIR/"kl.png")
 
-
+async def onButtonPressed_Notification():
+    notifier = DesktopNotifier(
+        app_name=f"KONIMEX APP",
+        app_icon= icon,
+        notification_limit=10,
+    )
+    
+    # tampilkan widget notification
+    await notifier.send(
+        title="GREAT SCALE READER NOTIFICATION",
+        message="Data berhasil disimpan!",
+        urgency=Urgency.Low,
+        sound=DEFAULT_SOUND,
+    )
 
 def init_pdf(filename="sample.pdf"):
     """
@@ -134,6 +154,7 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
                     if isPick is True:
                         line_arr.append([no, data, timestamps])
                         create_pdf(pdf, title, time_doc, spacer, line_arr)
+                        asyncio.run(onButtonPressed_Notification()) 
                         isPick = False
                 if condition is False:
                     ser.close()
@@ -184,6 +205,12 @@ def stop_serial_reading():
     Untuk menutup koneksi port.
     """
     ser.close()
+    global thread_monitor, stop_event_monitor
+    stop_event_monitor.set()
+    if stop_event_monitor.is_set():
+        thread_monitor.join()
+        stop_event_monitor = threading.Event()
+        
 
 def show_table(data):
     """
@@ -231,6 +258,17 @@ def run_table_onThread(data):
         daemon=True)
     th.start()
 
+def run_thread_monitor(stop_event):
+    global thread_monitor
+    thread_monitor = threading.Thread(
+            target=monitor_queue,
+            name="thread_monitor",
+            args=(stop_event,),
+            daemon=True
+        )
+    
+    thread_monitor.start()
+
 def insert_to_table(queue, tree, max_rows=100):
     """
     Insert serial data ke tabel;
@@ -254,7 +292,6 @@ def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"
     """
     Function yang digunakan saat button `start listening` ditekan.
     """
-    
     field_port = field_port.get()
     field_port = str(field_port).split(" ")[0]
     print(field_port)
@@ -274,34 +311,41 @@ def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"
 
     # Mulai pembacaan data di thread terpisah
     try:
+        global stop_event_monitor
+        stp = threading.Event()
+        
         start_reading_serial(
             baud_rate=int(field_baud_rate),
             port=field_port,
             timeout=int(field_timeout),
             code=field_code
         )
-        
-        thread_monitor = threading.Thread(
-            target=monitor_queue,
-            name="thread_monitor",
-            daemon=True
-        )
-        thread_monitor.start()
+        global thread_monitor
+        # thread_monitor = threading.Thread(
+        #     target=monitor_queue,
+        #     name="thread_monitor",
+        #     args=(stop_event_monitor,),
+        #     daemon=True
+        # )
+        # thread_monitor.start()
+        run_thread_monitor(stop_event_monitor)
         
     except Exception as e:
         messagebox.showerror("Error", f"Terjadi kesalahan: {str(e)}")
 
-def monitor_queue():
+def monitor_queue(stop_event):
     """
     Fungsi untuk mendapatkan nilai queue dan memproses data yang masuk
     tanpa memblokir thread utama (GUI).
     """
-    while True:
+    # while True:
+    while not stop_event.is_set():
         try:
             data = queue_dt.get(timeout=5)
             if data:
                 #Jalankan GUI Tabel di thrad lain;
-                run_table_onThread([data])
+                # run_table_onThread([data])
+                show_table([data])
                 print(data)
                 #menambahkan nilai dari Queue ke table GUI
                 insert_to_table(queue_dt, tree)
@@ -485,6 +529,9 @@ if __name__=='__main__':
     condition = True
     ser = serial.Serial()
     isPick = False
+    
+    thread_monitor = None
+    stop_event_monitor = threading.Event()
     
     ports = get_ports()
     var_option_ports = tk.StringVar(root)
