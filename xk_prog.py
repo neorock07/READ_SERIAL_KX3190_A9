@@ -15,7 +15,7 @@ import os
 from serial.tools import list_ports
 
 folder = "documents"
-no = 0
+
 
 
 def init_pdf(filename="sample.pdf"):
@@ -97,30 +97,40 @@ def read_serial_data(baud_rate: int, port: str, timeout: int = 5, code="latin-1"
     """
     
     data = None
-    global no, isPick
+    no = 0
+    global isPick
     if not check_port_availability(port):
         messagebox.showerror("Port Error", f"Port {port} tidak aktif atau tidak ada perangkat atau sedang dibuka!")
         return
 
     try:
+        # inisiasi serial port session
         ser.baudrate = baud_rate
         ser.timeout = timeout
         ser.port = port 
         ser.open()
+        
+        # array untuk menyimpan data yang di pick
         line_arr = []
         headers = ["No Serial", "Berat (kg)", "Timestamp"]
         line_arr.insert(0, headers)
         filename = f"HASIL_TIMBANGAN_{datetime.now().strftime('%d-%m-%y %H-%M-%S')}.pdf"    
+        
+        # inisiasi pdf
         pdf, title, time_doc, spacer = init_pdf(filename=filename)
         
         while ser.is_open:
+                # baca serial ketika port sudah terbuka
                 if ser.in_waiting > 0:
                     data = ser.readline().decode(code).strip()
                     no +=1
                     timestamps = datetime.now().strftime("%d-%m-%y %H:%M:%S")
                     print(no, data, timestamps)
-                  
+
+                    # tambahkan data hasil pembacaan ke Queue untuk ditampilkan ke Tabel GUI.
+                    # hapus ketika data sudah tidak terpakai untuk mengurangi beban penyimpanan
                     queue_dt.put([[no, data, timestamps]])
+                
                     if isPick is True:
                         line_arr.append([no, data, timestamps])
                         create_pdf(pdf, title, time_doc, spacer, line_arr)
@@ -154,6 +164,7 @@ def start_reading_serial(port, baud_rate, timeout, code):
     
     thread = threading.Thread(
         target=read_serial_data,
+        name="thread_read_serial",
         args=(baud_rate, port, timeout, code),
         daemon=True
     )
@@ -213,10 +224,14 @@ def run_table_onThread(data):
     """
     Menjalankan GUI table pada thread yang terpisah dari Main Thread.
     """
-    th = threading.Thread(target=show_table, args=(data), daemon=True)
+    th = threading.Thread(
+        target=show_table,
+        name="thread_show_table",
+        args=(data),
+        daemon=True)
     th.start()
 
-def insert_to_table(queue, tree):
+def insert_to_table(queue, tree, max_rows=100):
     """
     Insert serial data ke tabel;
     :param queue: objek Queue hasil pembacaan serial.
@@ -227,8 +242,13 @@ def insert_to_table(queue, tree):
         data = queue.get()
         for row in data:
             tree.insert("", "end", values=row)
-    #update data setiap 100 ms        
-    root.after(100, insert_to_table, queue, tree)    
+        
+        if len(tree.get_children()) > max_rows:
+            first_item = tree.get_children()[0]
+            tree.delete(first_item)
+                 
+    #update data setiap 500 ms        
+    root.after(2000, insert_to_table, queue, tree, max_rows)    
 
 def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"):
     """
@@ -263,6 +283,7 @@ def save_data(field_port, field_baud_rate, field_timeout=5, field_code="latin-1"
         
         thread_monitor = threading.Thread(
             target=monitor_queue,
+            name="thread_monitor",
             daemon=True
         )
         thread_monitor.start()
@@ -321,12 +342,17 @@ def run_save(field_port, field_baud_rate, field_timeout=5, field_code="latin-1")
     # Mulai thread untuk menjalankan fungsi save_data
     th = threading.Thread(
         target=save_data,
+        name="thread_save",
         args=(field_port, field_baud_rate, field_timeout, field_code),
         daemon=True
     )
     th.start()
 
 def pick_serial_data():
+    """"
+    Function untuk mengubah kondisi agar dapat mengambil data dari stream serial 
+    ke pdf.
+    """
     global isPick
     isPick = True
 
@@ -374,8 +400,8 @@ def gui_window():
         "EUC-JP",
         "KOI8-R",
         "ISO-8859-9",
-        "windows-1252"
-        "Windows-1254",
+        "windows-1252",
+        "windows-1254",
         
     ]
       
@@ -384,7 +410,7 @@ def gui_window():
     field_port.grid(row=1, column=1, padx=10, pady=5, sticky="w")
     
     btn_refresh = tk.Button(root, 
-                           text="💱refresh", 
+                           text="refresh", 
                            height=1,
                         #    background='green', 
                            width=6,
@@ -454,7 +480,7 @@ if __name__=='__main__':
     frame.pack(fill="both", expand=True, padx=10, pady=10)
     tree = ttk.Treeview(frame, columns=(1, 2, 3), show="headings", height=2)
     
-    queue_dt = queue.Queue()
+    queue_dt = queue.Queue(maxsize=100)
     stop_event = threading.Event()
     condition = True
     ser = serial.Serial()
